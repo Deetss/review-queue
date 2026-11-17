@@ -159,8 +159,8 @@ cannot reach.
 ## Install
 
 ```bash
-git clone https://github.com/Deetss/herdr-review-panel.git ~/dev/personal/herdr-review-panel
-cd ~/dev/personal/herdr-review-panel && cargo build --release
+git clone https://github.com/Deetss/review-queue.git ~/dev/personal/review-queue
+cd ~/dev/personal/review-queue && cargo build --release
 ```
 
 Then wire up the hook. Add a `Stop` and `SubagentStop` hook to your Claude Code settings
@@ -169,7 +169,7 @@ a three-line shim into this checkout rather than a copy of it:
 
 ```bash
 #!/bin/bash
-target="$HOME/dev/personal/herdr-review-panel/scripts/review-notify.sh"
+target="$HOME/dev/personal/review-queue/scripts/review-notify.sh"
 [ -r "$target" ] || exit 0
 exec bash "$target"
 ```

@@ -1,4 +1,4 @@
-project_name: "herdr-review-panel"
+project_name: "review-queue"
 default_status: "To Do"
 statuses: ["To Do", "In Progress", "Done"]
 labels: []

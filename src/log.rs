@@ -493,16 +493,16 @@ mod tests {
 
     #[test]
     fn parses_a_review_line_with_no_kind_field() {
-        let line = "2026-09-09 11:24:32 session=abc repo=herdr-review-panel cwd=/home/d item=herdr-plugin.toml";
+        let line = "2026-09-09 11:24:32 session=abc repo=review-queue cwd=/home/d item=plugin.toml";
         let parsed = parse_line(line).unwrap();
         assert_eq!(parsed.ts, "2026-09-09 11:24:32");
         assert_eq!(parsed.session, "abc");
-        assert_eq!(parsed.repo, "herdr-review-panel");
+        assert_eq!(parsed.repo, "review-queue");
         assert_eq!(parsed.cwd.as_deref(), Some("/home/d"));
         assert!(!parsed.is_command);
         assert_eq!(parsed.step, None);
         assert_eq!(parsed.warn, None);
-        assert_eq!(parsed.item, "herdr-plugin.toml");
+        assert_eq!(parsed.item, "plugin.toml");
     }
 
     #[test]
