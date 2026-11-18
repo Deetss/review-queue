@@ -33,6 +33,14 @@ refuse() {
   exit 1
 }
 
+# Writes into the panel's opt-in input trace (src/event_log.rs), so Orca calls line up with
+# the input events around them.
+EVENT_LOG="$HOME/.claude/review/events.log"
+trace() {
+  [ -f "$EVENT_LOG" ] && printf '%s plugin %s\n' "$(date +%T.%3N)" "$*" >>"$EVENT_LOG"
+  return 0
+}
+
 # An already-open pane keeps whatever code it started with - a rebuild alone does not reach
 # it. Left unchecked this produces the exact bug that motivated this guard: a fix lands in
 # source, nobody rebuilds+restarts, and the panel silently runs stale code with no error (see
@@ -99,12 +107,19 @@ if [ "$mode" = "run" ]; then
   "") refuse "agent pane is gone or runs no agent" ;;
   *) refuse "$agent has no ! shell mode" ;;
   esac
+  # A `!` typed after a draft is just more draft text, and Enter would send draft plus command
+  # as a prompt. Orca reports the agent's unsent input, which may not be on screen yet.
+  draft=$("$ORCA" terminal read --terminal "$target" --limit 1 --json 2>/dev/null |
+    jq -r '.result.terminal.draft // ""' 2>/dev/null)
+  [ -z "$draft" ] || refuse "agent has unsent input, clear it first"
+  trace "run start $target"
   "$ORCA" terminal send --terminal "$target" --text '!' >/dev/null 2>&1 ||
     refuse "send to $target failed"
   # Lets the agent's input box switch to shell mode before the command arrives.
   sleep "${REVIEW_PANEL_RUN_SETTLE:-0.3}"
   "$ORCA" terminal send --terminal "$target" --text "$text" --enter >/dev/null 2>&1 ||
     refuse "send to $target failed"
+  trace "run sent $target"
   printf 'ran in %s\n' "$target"
   exit 0
 fi
@@ -235,6 +250,7 @@ open)
   # a real orca terminal subcommand (only `switch` is).
   "$ORCA" terminal switch --terminal "$ORCA_TERMINAL_HANDLE" >/dev/null 2>&1 &
   wait
+  trace "opened $opened, switched back to $ORCA_TERMINAL_HANDLE"
   printf 'opened review panel %s in this tab\n' "$opened"
   ;;
 *)
