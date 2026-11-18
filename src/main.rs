@@ -107,6 +107,7 @@ fn run(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
                         KeyCode::Up | KeyCode::Char('k') => app.move_cursor(-1),
                         KeyCode::Down | KeyCode::Char('j') => app.move_cursor(1),
                         KeyCode::Enter => app.activate_cursor(),
+                        KeyCode::Char('!') => app.run_cursor(),
                         KeyCode::Char(' ') | KeyCode::Char('d') => app.toggle_done_cursor(),
                         KeyCode::Backspace | KeyCode::Delete => app.clear_cursor(),
                         KeyCode::Char('c') => app.clear_done(),

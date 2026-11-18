@@ -62,6 +62,25 @@ pub fn notify_agent(target: &str, text: &str) {
         .spawn();
 }
 
+/// Runs `command` in the agent's `!` shell mode - see plugin.sh's `run` mode. Waits for the
+/// send so a failure (say, an agent with no shell mode) can be shown on the row.
+pub fn run_in_agent(target: &str, command: &str) -> Result<(), String> {
+    let script = plugin_sh().ok_or("Can't run: panel root unknown")?;
+    let output = Command::new("bash")
+        .arg(script)
+        .arg("run")
+        .env("REVIEW_PANEL_NOTIFY_TARGET", target)
+        .env("REVIEW_PANEL_NOTIFY_TEXT", command)
+        .output()
+        .map_err(|e| format!("Can't run: {e}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let reason = String::from_utf8_lossy(&output.stderr);
+    let reason = reason.trim().trim_start_matches("review-panel: ");
+    Err(format!("Can't run: {reason}"))
+}
+
 /// OSC 52 sets the terminal's own clipboard, not the process's - it's the only approach that
 /// reliably crosses the WSL -> Windows Terminal boundary, since a system-clipboard crate
 /// (X11/Wayland/Win32 API) would only ever reach a clipboard inside WSL, not the Windows one.

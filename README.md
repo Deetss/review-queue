@@ -97,6 +97,14 @@ and, on "yes," tells the agent that flagged it to continue via `orca terminal se
 nobody has to go back and prompt it by hand. The top `clear` button hides every open and done
 row without telling the agent anything, and the panel stays open on the empty state.
 
+An open command also shows a green `run` button beside its `x`. It runs the command in the
+agent's own `!` shell mode, so the output lands in the agent's context, and checks the row off.
+`plugin.sh run` sends `!` as a raw keystroke, then the command with Enter, because a pasted `!`
+stays prompt text. It works for Claude Code, Codex and Pi, and fails with a status message for
+any other agent. Rows tagged `terminal=` stay copy-only. `!` mode cannot answer a password
+prompt, so copy `sudo` and other interactive commands instead. A draft already typed in the
+agent's input box gets the command appended to it.
+
 To see what the hook decided and why, set `REVIEW_NOTIFY_DEBUG=1` (or `2` to include the raw
 reply) and read `~/.claude/review-debug.log`.
 
@@ -105,6 +113,7 @@ reply) and read `~/.claude/review-debug.log`.
 | Action | Mouse | Keyboard |
 |---|---|---|
 | Open a file / copy a command (copying also checks it off) | Click its text | `Enter` |
+| Run a command in the agent's `!` shell mode (also checks it off) | Click `run` | `!` |
 | Check a command off, or reopen a done one | Click its checkbox | `Space` or `d` |
 | Expand or fold a session's done rows | Click its DONE summary line | `Enter` on the summary |
 | Clear one row | Click the `x` on its row | `Backspace`/`Delete` |

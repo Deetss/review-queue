@@ -7,6 +7,7 @@
 #   plugin.sh clear      hide every row by appending events to the cleared log (nothing is cut)
 #   plugin.sh open-item  open the file:// path Ctrl+clicked in the sidebar
 #   plugin.sh notify     tell the agent that flagged items to continue
+#   plugin.sh run        run a queued command in the agent's `!` shell mode
 #
 # Orca has no plugin panes, so the sidebar binary runs in an `orca terminal split` beside the
 # pane that flagged the item. There's no separate state file: the tab's live terminal list
@@ -79,6 +80,32 @@ if [ "$mode" = "notify" ]; then
   "$ORCA" terminal send --terminal "$target" --text "$text" --enter >/dev/null 2>&1 ||
     refuse "orca terminal send failed for $target"
   printf 'notified %s\n' "$target"
+  exit 0
+fi
+
+# Runs a queued command in the agent's `!` shell mode, so its output lands in the agent's
+# context. The `!` goes as a raw keystroke: Orca bracket-pastes text sent with --enter to a
+# recognized agent, and a pasted `!` stays prompt text instead of switching modes.
+if [ "$mode" = "run" ]; then
+  target="${REVIEW_PANEL_NOTIFY_TARGET:-}"
+  text="${REVIEW_PANEL_NOTIFY_TEXT:-}"
+  [ -n "$target" ] || refuse "no agent pane"
+  [ -n "$text" ] || refuse "empty command"
+  command -v "$ORCA" >/dev/null 2>&1 || refuse "$ORCA not on PATH"
+  agent=$("$ORCA" terminal list --json 2>/dev/null |
+    jq -r --arg h "$target" '.result.terminals[] | select(.handle == $h and .connected == true) | .agentIdentity // ""' 2>/dev/null)
+  case "$agent" in
+  claude | codex | pi) ;;
+  "") refuse "agent pane is gone or runs no agent" ;;
+  *) refuse "$agent has no ! shell mode" ;;
+  esac
+  "$ORCA" terminal send --terminal "$target" --text '!' >/dev/null 2>&1 ||
+    refuse "send to $target failed"
+  # Lets the agent's input box switch to shell mode before the command arrives.
+  sleep "${REVIEW_PANEL_RUN_SETTLE:-0.3}"
+  "$ORCA" terminal send --terminal "$target" --text "$text" --enter >/dev/null 2>&1 ||
+    refuse "send to $target failed"
+  printf 'ran in %s\n' "$target"
   exit 0
 fi
 
