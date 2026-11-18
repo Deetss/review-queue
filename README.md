@@ -97,13 +97,17 @@ and, on "yes," tells the agent that flagged it to continue via `orca terminal se
 nobody has to go back and prompt it by hand. The top `clear` button hides every open and done
 row without telling the agent anything, and the panel stays open on the empty state.
 
-An open command also shows a green `run` button beside its `x`. It runs the command in the
+An open command also shows a green `▶` run button, two columns clear of its `x`. It runs the command in the
 agent's own `!` shell mode, so the output lands in the agent's context, and checks the row off.
 `plugin.sh run` sends `!` as a raw keystroke, then the command with Enter, because a pasted `!`
 stays prompt text. It works for Claude Code, Codex and Pi, and fails with a status message for
-any other agent. Rows tagged `terminal=` stay copy-only. `!` mode cannot answer a password
-prompt, so copy `sudo` and other interactive commands instead. A draft already typed in the
-agent's input box gets the command appended to it.
+any other agent. Rows tagged `terminal=` and `sudo` commands stay copy-only, since `!` mode
+cannot answer a password prompt; copy other interactive commands too. If the agent's input
+box holds unsent text, run refuses rather than append the command to it.
+
+To trace input while chasing a focus problem, `touch ~/.claude/review/events.log` and reopen
+the panel. Each key, click, mouse move and focus change is appended to it, along with the
+`plugin.sh` open and run calls around them. Delete the file to stop.
 
 To see what the hook decided and why, set `REVIEW_NOTIFY_DEBUG=1` (or `2` to include the raw
 reply) and read `~/.claude/review-debug.log`.

@@ -386,11 +386,12 @@ fn with_clear_glyph(spans: Vec<Span<'static>>, width: u16, trim: Trim) -> Vec<Sp
     with_trailing(spans, width, trim, vec![clear_glyph()])
 }
 
-/// An open command's trailing "run x". `run` sits at the columns app.rs's run_cols hit-tests.
+/// An open command's trailing "▶  x". The ▶ sits inside the columns app.rs's run_cols
+/// hit-tests.
 fn with_run_and_clear(spans: Vec<Span<'static>>, width: u16) -> Vec<Span<'static>> {
     let tail = vec![
         Span::styled(RUN_LABEL, theme::run_button()),
-        Span::raw(" "),
+        Span::raw("  "),
         clear_glyph(),
     ];
     with_trailing(spans, width, Trim::Tail, tail)
@@ -1016,10 +1017,10 @@ mod tests {
             let buf = draw_buffer(&mut app, 40, 24);
             capture("run-40", &buf);
             let rows = rows_of(&buf);
-            assert!(rows[5].trim_end().ends_with(" run x"), "{}", rows[5]);
-            assert!(rows[10].trim_end().ends_with("run x"), "{}", rows[10]);
+            assert!(rows[5].trim_end().ends_with(" ▶  x"), "{}", rows[5]);
+            assert!(rows[10].trim_end().ends_with(" ▶  x"), "{}", rows[10]);
             // Done rows have nothing left to run.
-            assert!(!rows[13].contains("run"));
+            assert!(!rows[13].contains('▶'));
         }
 
         #[test]

@@ -2,6 +2,7 @@ mod actions;
 mod app;
 mod cleared;
 mod done;
+mod event_log;
 mod events;
 mod log;
 mod queue;
@@ -11,10 +12,12 @@ mod ui;
 use anyhow::Result;
 use app::{App, WHEEL_SCROLL_LINES};
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind,
+    self, DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture, Event,
+    KeyCode, MouseButton, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::SetTitle;
+use event_log::EventLog;
 use ratatui::DefaultTerminal;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -39,6 +42,7 @@ fn main() -> Result<()> {
     let notify_target = std::env::var("REVIEW_PANEL_NOTIFY_TARGET").ok();
 
     let mut app = App::new(log_path, notify_target);
+    let mut trace = EventLog::open();
 
     let mut terminal = ratatui::init();
     // The pane title is how plugin.sh finds an open panel; without this the pane keeps the
@@ -48,7 +52,13 @@ fn main() -> Result<()> {
         EnableMouseCapture,
         SetTitle("Review Queue")
     )?;
-    let result = run(&mut terminal, &mut app);
+    if trace.enabled() {
+        execute!(std::io::stdout(), EnableFocusChange)?;
+    }
+    let result = run(&mut terminal, &mut app, &mut trace);
+    if trace.enabled() {
+        execute!(std::io::stdout(), DisableFocusChange)?;
+    }
     execute!(std::io::stdout(), DisableMouseCapture)?;
     ratatui::restore();
     result
@@ -65,7 +75,7 @@ fn hide_all(paths: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn run(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
+fn run(terminal: &mut DefaultTerminal, app: &mut App, trace: &mut EventLog) -> Result<()> {
     let mut areas: Option<ui::Areas> = None;
 
     let mut button_held = false;
@@ -81,6 +91,7 @@ fn run(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
             // costs one frame rather than one per event.
             loop {
                 let ev = event::read()?;
+                trace.record(&ev);
                 if !matches!(&ev, Event::Mouse(m) if m.kind == MouseEventKind::Moved) {
                     force_poll = true;
                 }

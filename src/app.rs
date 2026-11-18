@@ -32,14 +32,15 @@ const COPY_DEBOUNCE: Duration = Duration::from_millis(500);
 /// never shifts this boundary. Kept in sync with ui.rs's render_row.
 pub const CHECKBOX_END_COL: u16 = 6;
 
-/// The per-row run button, drawn as "run x" at a runnable command row's right edge.
-pub const RUN_LABEL: &str = "run";
+/// The per-row run button, drawn as "▶  x" at a runnable command row's right edge.
+pub const RUN_LABEL: &str = "▶";
 
-/// Columns of a row's `run` button: its label, then a space, then the clear "x" in the last
-/// column. Kept in sync with ui.rs's with_run_and_clear.
+/// Columns that hit a row's run button: the ▶ and one column either side. The column just
+/// before the clear "x" stays dead, so a near miss on either button does nothing. Kept in
+/// sync with ui.rs's with_run_and_clear.
 fn run_cols(list_width: u16) -> std::ops::Range<u16> {
-    let start = list_width.saturating_sub(RUN_LABEL.len() as u16 + 2);
-    start..start + RUN_LABEL.len() as u16
+    let glyph = list_width.saturating_sub(4);
+    glyph.saturating_sub(1)..glyph + 2
 }
 
 /// How many rows a single scroll-wheel tick moves, independent of cursor position.
@@ -248,12 +249,14 @@ impl App {
     }
 
     /// An open command with a known agent pane and no `terminal=` tag. A tagged command
-    /// targets somewhere other than the agent's own shell, so it stays copy-only.
+    /// targets somewhere other than the agent's own shell, so it stays copy-only, and so does
+    /// `sudo`, since `!` mode has no terminal to ask for a password on.
     pub fn can_run(&self, row: &Row) -> bool {
         self.notify_target.is_some()
             && matches!(
                 row,
-                Row::CommandItem { key, hidden: None, terminal: None, .. } if !self.is_done(key)
+                Row::CommandItem { key, command, hidden: None, terminal: None, .. }
+                    if !self.is_done(key) && !command.trim_start().starts_with("sudo ")
             )
     }
 
@@ -1113,6 +1116,11 @@ mod tests {
         f.app.notify_target = Some("term_1".into());
         let runnable: Vec<bool> = commands.iter().map(|r| f.app.can_run(r)).collect();
         assert_eq!(runnable, [true, false], "a terminal= tag stays copy-only");
+
+        let mut sudo = fixture(&now_command_line("r", "sudo chmod 0644 /etc/x"));
+        sudo.app.notify_target = Some("term_1".into());
+        let sudo_row = sudo.app.rows[command_idx(&sudo.app)].clone();
+        assert!(!sudo.app.can_run(&sudo_row), "sudo stays copy-only");
 
         let key = first_command_key(&f.app);
         f.app.mark_done(&key);
