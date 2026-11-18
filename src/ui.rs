@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App, RUN_LABEL};
 use crate::log::{Hidden, Row};
 use crate::theme;
 use ratatui::Frame;
@@ -78,7 +78,16 @@ fn footer_segments(app: &App) -> Vec<&'static str> {
         Some(Row::FileItem { .. }) => Some("Enter open"),
         _ => None,
     };
-    lead.into_iter().chain(TAIL).chain(enter).collect()
+    let run = app
+        .cursor
+        .and_then(|c| app.rows.get(c))
+        .is_some_and(|row| app.can_run(row))
+        .then_some("! run");
+    lead.into_iter()
+        .chain(TAIL)
+        .chain(enter)
+        .chain(run)
+        .collect()
 }
 
 /// Fills two rows greedily with ` · ` joined segments. A segment that fits on neither row is
@@ -373,14 +382,38 @@ enum Trim {
 /// Appends right-padding plus a trailing "x" to reach `width` - the per-row/per-section clear
 /// affordance app.rs's click_row treats any click on the rightmost column as. Only called for
 /// row kinds that are actually clearable (not Blank).
+fn with_clear_glyph(spans: Vec<Span<'static>>, width: u16, trim: Trim) -> Vec<Span<'static>> {
+    with_trailing(spans, width, trim, vec![clear_glyph()])
+}
+
+/// An open command's trailing "run x". `run` sits at the columns app.rs's run_cols hit-tests.
+fn with_run_and_clear(spans: Vec<Span<'static>>, width: u16) -> Vec<Span<'static>> {
+    let tail = vec![
+        Span::styled(RUN_LABEL, theme::run_button()),
+        Span::raw(" "),
+        clear_glyph(),
+    ];
+    with_trailing(spans, width, Trim::Tail, tail)
+}
+
+fn clear_glyph() -> Span<'static> {
+    Span::styled("x", theme::clear_icon())
+}
+
+/// Pads `spans` so `tail` ends flush with the right edge of `width`.
 ///
 /// The last span is the row's content and is cut to fit first: ratatui clips a too-long line
-/// at the right edge, which used to take the "x" with it, leaving the rightmost click meaning
-/// "clear" on a row that showed no clear glyph. Narrow splits (Orca's is half a tab) hit this
-/// on almost every absolute path.
-fn with_clear_glyph(mut spans: Vec<Span<'static>>, width: u16, trim: Trim) -> Vec<Span<'static>> {
-    let last_col = (width as usize).saturating_sub(1);
-    // One column of gap before the x, so a full row still reads as content-then-glyph.
+/// at the right edge, which would take the tail with it and leave its columns clickable with
+/// nothing drawn there. Narrow splits (Orca's is half a tab) hit this on almost every path.
+fn with_trailing(
+    mut spans: Vec<Span<'static>>,
+    width: u16,
+    trim: Trim,
+    tail: Vec<Span<'static>>,
+) -> Vec<Span<'static>> {
+    let tail_len: usize = tail.iter().map(|s| s.content.chars().count()).sum();
+    let last_col = (width as usize).saturating_sub(tail_len);
+    // One column of gap before the tail, so a full row still reads as content-then-glyph.
     let budget = last_col.saturating_sub(1);
     let prefix_len: usize = spans
         .iter()
@@ -398,7 +431,7 @@ fn with_clear_glyph(mut spans: Vec<Span<'static>>, width: u16, trim: Trim) -> Ve
     if last_col > content_len {
         spans.push(Span::raw(" ".repeat(last_col - content_len)));
     }
-    spans.push(Span::styled("x", theme::clear_icon()));
+    spans.extend(tail);
     spans
 }
 
@@ -656,7 +689,11 @@ fn render_row(
                 command.replace('\n', " \u{23ce} "),
                 text_style,
             ));
-            Line::from(with_clear_glyph(spans, width, Trim::Tail))
+            if app.can_run(row) {
+                Line::from(with_run_and_clear(spans, width))
+            } else {
+                Line::from(with_clear_glyph(spans, width, Trim::Tail))
+            }
         }
     }
 }
@@ -898,6 +935,7 @@ mod tests {
                 Color::DarkGray => "#707880",
                 Color::Red => "#cc6666",
                 Color::LightRed => "#ff8c8c",
+                Color::Green => "#b5bd68",
                 _ => "#d8dadb",
             }
         }
@@ -969,6 +1007,19 @@ mod tests {
             if let Ok(dir) = std::env::var("REVIEW_PANEL_CAPTURE_DIR") {
                 std::fs::write(format!("{dir}/{name}.svg"), to_svg(buf)).unwrap();
             }
+        }
+
+        #[test]
+        fn runnable_rows_show_run_before_the_x() {
+            let (mut app, _files) = sample();
+            app.set_notify_target("term_1");
+            let buf = draw_buffer(&mut app, 40, 24);
+            capture("run-40", &buf);
+            let rows = rows_of(&buf);
+            assert!(rows[5].trim_end().ends_with(" run x"), "{}", rows[5]);
+            assert!(rows[10].trim_end().ends_with("run x"), "{}", rows[10]);
+            // Done rows have nothing left to run.
+            assert!(!rows[13].contains("run"));
         }
 
         #[test]

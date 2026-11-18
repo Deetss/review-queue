@@ -32,6 +32,16 @@ const COPY_DEBOUNCE: Duration = Duration::from_millis(500);
 /// never shifts this boundary. Kept in sync with ui.rs's render_row.
 pub const CHECKBOX_END_COL: u16 = 6;
 
+/// The per-row run button, drawn as "run x" at a runnable command row's right edge.
+pub const RUN_LABEL: &str = "run";
+
+/// Columns of a row's `run` button: its label, then a space, then the clear "x" in the last
+/// column. Kept in sync with ui.rs's with_run_and_clear.
+fn run_cols(list_width: u16) -> std::ops::Range<u16> {
+    let start = list_width.saturating_sub(RUN_LABEL.len() as u16 + 2);
+    start..start + RUN_LABEL.len() as u16
+}
+
 /// How many rows a single scroll-wheel tick moves, independent of cursor position.
 pub const WHEEL_SCROLL_LINES: isize = 3;
 
@@ -235,6 +245,67 @@ impl App {
 
     pub fn is_done(&self, key: &str) -> bool {
         self.done.contains(key)
+    }
+
+    /// An open command with a known agent pane and no `terminal=` tag. A tagged command
+    /// targets somewhere other than the agent's own shell, so it stays copy-only.
+    pub fn can_run(&self, row: &Row) -> bool {
+        self.notify_target.is_some()
+            && matches!(
+                row,
+                Row::CommandItem { key, hidden: None, terminal: None, .. } if !self.is_done(key)
+            )
+    }
+
+    /// A copy or run within COPY_DEBOUNCE of the last one is a duplicate delivery of the same
+    /// click.
+    fn duplicate_click(&self) -> bool {
+        self.last_copy
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() < COPY_DEBOUNCE)
+    }
+
+    #[cfg(test)]
+    pub fn set_notify_target(&mut self, target: &str) {
+        self.notify_target = Some(target.to_string());
+    }
+
+    /// `!` (keyboard) or the row's `run` button (mouse).
+    pub fn run_cursor(&mut self) {
+        if let Some(idx) = self.cursor {
+            self.run_row(idx);
+        }
+    }
+
+    /// Sends the command to the agent's `!` shell mode, so it runs there and its output lands
+    /// in the agent's context. Marks the row done, as copying does.
+    fn run_row(&mut self, idx: usize) {
+        let (Some(target), Some(row)) = (self.notify_target.clone(), self.rows.get(idx)) else {
+            return;
+        };
+        if !self.can_run(row) {
+            return;
+        }
+        let Row::CommandItem { command, key, .. } = row else {
+            return;
+        };
+        // Running moves the row into the drawer, so a duplicate click would land on the next
+        // row and run that one too.
+        if self.duplicate_click() {
+            return;
+        }
+        let (command, key) = (command.clone(), key.clone());
+        let sent = actions::run_in_agent(&target, &command);
+        // Stamped after the send returns, so clicks queued while it ran fall in the window.
+        self.last_copy = Some((key.clone(), Instant::now()));
+        if let Err(err) = sent {
+            self.set_status(err);
+            return;
+        }
+        self.mark_done(&key);
+        self.maybe_prompt_report();
+        self.set_status("Sent to the agent");
+        self.rebuild();
     }
 
     /// Called every frame with the terminal's current height, but only re-clamps scroll on an
@@ -806,6 +877,11 @@ impl App {
             self.clear_row_at(row_idx);
             return;
         }
+        let on_run = run_cols(list_width).contains(&local_col);
+        if on_run && self.rows.get(row_idx).is_some_and(|r| self.can_run(r)) {
+            self.run_row(row_idx);
+            return;
+        }
         match self.rows.get(row_idx) {
             Some(Row::CommandItem { key, .. }) if local_col < CHECKBOX_END_COL => {
                 let key = key.clone();
@@ -872,11 +948,7 @@ impl App {
                 self.set_status(msg);
             }
             Activation::CopyCommand { command, key } => {
-                let is_duplicate = self
-                    .last_copy
-                    .as_ref()
-                    .is_some_and(|(_, at)| at.elapsed() < COPY_DEBOUNCE);
-                if is_duplicate {
+                if self.duplicate_click() {
                     return;
                 }
                 self.last_copy = Some((key.clone(), Instant::now()));
@@ -1015,6 +1087,59 @@ mod tests {
                 _ => None,
             })
             .expect("a command row")
+    }
+
+    fn command_idx(app: &App) -> usize {
+        app.rows
+            .iter()
+            .position(|r| matches!(r, Row::CommandItem { .. }))
+            .expect("a command row")
+    }
+
+    #[test]
+    fn run_needs_an_agent_pane_and_an_open_untagged_command() {
+        let ts = Local::now().format("%Y-%m-%d %H:%M:%S");
+        let mut f = fixture(&format!(
+            "{}{ts}\tsession=s\trepo=r\tcwd=/home/d\tkind=command\tterminal=ssh:host\titem=uptime\n",
+            now_command_line("r", "echo hi")
+        ));
+        let rows = f.app.rows.clone();
+        let commands: Vec<&Row> = rows
+            .iter()
+            .filter(|r| matches!(r, Row::CommandItem { .. }))
+            .collect();
+        assert!(commands.iter().all(|r| !f.app.can_run(r)), "no agent pane");
+
+        f.app.notify_target = Some("term_1".into());
+        let runnable: Vec<bool> = commands.iter().map(|r| f.app.can_run(r)).collect();
+        assert_eq!(runnable, [true, false], "a terminal= tag stays copy-only");
+
+        let key = first_command_key(&f.app);
+        f.app.mark_done(&key);
+        assert!(
+            commands.iter().all(|r| !f.app.can_run(r)),
+            "done rows do not run"
+        );
+    }
+
+    #[test]
+    fn run_button_sits_left_of_the_clear_x() {
+        assert_eq!(run_cols(40), 35..38);
+    }
+
+    #[test]
+    fn a_failed_run_leaves_the_row_open_and_says_why() {
+        let mut f = fixture(&now_command_line("r", "echo hi"));
+        f.app.notify_target = Some("term_1".into());
+        let idx = command_idx(&f.app);
+        // No REVIEW_PANEL_ROOT under test, so the send fails before reaching Orca.
+        f.app.click_row(idx, run_cols(40).start, 40);
+        assert!(!f.app.is_done(&first_command_key(&f.app)));
+        assert!(
+            f.app
+                .status_text()
+                .is_some_and(|s| s.starts_with("Can't run"))
+        );
     }
 
     fn has_summary(app: &App) -> bool {

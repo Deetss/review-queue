@@ -121,6 +121,11 @@ pub fn summary_highlighted() -> Style {
         .add_modifier(Modifier::REVERSED)
 }
 
+/// The per-row `run` button: sends the command to the agent's shell mode.
+pub fn run_button() -> Style {
+    Style::default().fg(Color::Green)
+}
+
 pub fn clear_all_button() -> Style {
     Style::default().fg(Color::Red)
 }
